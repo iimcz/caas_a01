@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  cad-data:
+    build: .
+    restart: unless-stopped
+    environment:
+      - CAD_DATA_TAB=2
+      - ADAFRUIT_IO_USER=maxer456
+      - ADAFRUIT_IO_KEY=aio_cMgz81RUNwjMEKat9eBZImhQWk6t 
