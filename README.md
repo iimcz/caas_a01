@@ -6,3 +6,4 @@ Tento repozitář obsahuje software k elektronické části artefaktu Tabula Ras
 [ČVUT - aktuality - Tabula Rasa](https://cvutdecin.cz/en/aktuality/tabula-rasa)
 
 # Soubory k Artefaktu 01
+Grafická část aktuálně není publikována.
