@@ -1,7 +1,5 @@
 import requests, json, threading, time, datetime, os
-from Adafruit_IO import Client as AIO_Client
-from Adafruit_IO import Feed as AIO_Feed
-from Adafruit_IO import RequestError
+import paho.mqtt.client as mqtt
 
 
 """# Inicializace
@@ -93,27 +91,6 @@ def send_update_request(components, UIDL_Data):
 
     return result
 
-def send_to_adafruit(aio, to_sync, to_send, vals, UIDL_Data):
-    result = send_update_request(to_sync, UIDL_Data)
-    if 'state' not in result:
-        return True
-
-    for id in to_send:
-        if id in result['state']:
-            try:
-                val = result['state'][id]['text']
-            except KeyError:
-                return True
-            vals[id] = val
-
-    for id in to_send:
-        print(to_send[id])
-        print(vals[id])
-        fval = float(vals[id].split()[0])
-        aio.send(to_send[id], fval)
-
-    return False
-
 
 def __main__():
     s = requests.Session()
@@ -167,28 +144,51 @@ def __main__():
         'requests_session': s
     }
 
-    aio_user = os.environ['ADAFRUIT_IO_USER']
-    aio_key = os.environ['ADAFRUIT_IO_KEY']
-    aio = AIO_Client(aio_user, aio_key)
+    topic_names = {}
     for id in to_send:
-        name = to_send[id]
-        key = to_send[id].lower().replace(' ','-')
-        to_send[id] = key
-        try:
-            aio.feeds(key)
-        except RequestError:
-            aio.create_feed(AIO_Feed(name=name, key=key))
+        topic_names[id] = ['art01/star/' + to_send[id].lower().replace(' ', '-')]
 
-    next_call = time.time()
+    client = mqtt.Client('cad_sender-1', True)
+    client.tls_set()
+    client.username_pw_set(os.environ['MQTT_USERNAME'], os.environ['MQTT_PASSWORD'])
+    client.enable_logger()
+
     while True:
-        print(datetime.datetime.now())
-        next_call = next_call + 5
-        sleeptime = next_call - time.time()
-        if sleeptime >= 0:
-            time.sleep(next_call - time.time())
-        reconnect = send_to_adafruit(aio, to_sync, to_send, vals, UIDL_Data)
-        if reconnect:
-            return
+        cret = client.connect(host=os.environ['MQTT_SERVER'], port=int(os.environ['MQTT_PORT']))
+        next_call = time.time()
+
+        while cret <= 0:
+            print(datetime.datetime.now())
+            result = send_update_request(to_sync, UIDL_Data)
+            if 'state' not in result:
+                client.disconnect()
+                return
+
+            for id in to_send:
+                if id in result['state']:
+                    try:
+                        val = result['state'][id]['text']
+                    except KeyError:
+                        client.disconnect()
+                        return
+                    vals[id] = val
+
+            for id in to_send:
+                print(to_send[id])
+                print(vals[id])
+                fval = float(vals[id].split()[0])
+                for topic_name in topic_names[id]:
+                    cret = client.publish(topic_name, fval)
+
+            # First let client handle pending networking, then sleep
+            # rest of the time ourselves
+            next_call = next_call + 5
+            sleeptime = next_call - time.time()
+            if sleeptime >= 0:
+                cret = client.loop(next_call - time.time())
+            sleeptime = next_call - time.time()
+            if sleeptime >= 0:
+                time.sleep(next_call - time.time())
 
 if __name__ == "__main__":
     __main__()

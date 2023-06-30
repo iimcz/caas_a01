@@ -6,5 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - CAD_DATA_TAB=2
-      - ADAFRUIT_IO_USER=maxer456
-      - ADAFRUIT_IO_KEY=aio_cMgz81RUNwjMEKat9eBZImhQWk6t 
+      - MQTT_SERVER=
+      - MQTT_PORT=
+      - MQTT_USERNAME=
+      - MQTT_PASSWORD=

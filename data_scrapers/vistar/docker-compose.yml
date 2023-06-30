@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  vistar-data:
+    build: .
+    restart: unless-stopped
+    environment:
+      - MQTT_SERVER=
+      - MQTT_PORT=
+      - MQTT_USERNAME=
+      - MQTT_PASSWORD=
