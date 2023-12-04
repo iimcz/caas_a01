@@ -51,6 +51,7 @@ def __main__():
 #         'art01/cern/i_b1': AnimationDecider(0.0, 2000.0),
          'art01/cern/i_b2': AnimationDecider(0.0, 2000.0)}
     client.user_data_set(m)
+    client.on_message = on_message
     print(f'Connecting to MQTT server: {os.environ["MQTT_SERVER"]}:{os.environ["MQTT_PORT"]}', flush=True)
     client.connect(os.environ['MQTT_SERVER'], int(os.environ['MQTT_PORT']))
     print(f'Connected!', flush=True)
