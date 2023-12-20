@@ -20,20 +20,23 @@ class AnimationDecider:
         return result
 
 def __main__():
+    global ANIMATION_MESSAGE, ANIMATION_MESSAGE_IP, ANIMATION_MESSAGE_PORT
+
     client = mqtt.Client('art01-recv', clean_session=True, reconnect_on_failure=True)
     client.tls_set()
     client.username_pw_set(os.environ['MQTT_USERNAME'], os.environ['MQTT_PASSWORD'])
     client.enable_logger()
 
     if 'ANIMATION_MESSAGE' in os.environ:
-        ANIMATION_MESSAGE = os.environ['ANIMATION_MESSAGE']
+        ANIMATION_MESSAGE = os.environ['ANIMATION_MESSAGE'].encode('ascii')
     if 'ANIMATION_MESSAGE_IP' in os.environ:
-        ANIMATION_MESSAGE_IP = os.environ['ANIMATION_MESSAGE_IP']
+        ANIMATION_MESSAGE_IP = int(os.environ['ANIMATION_MESSAGE_IP'])
     if 'ANIMATION_MESSAGE_PORT' in os.environ:
         ANIMATION_MESSAGE_PORT = os.environ['ANIMATION_MESSAGE_PORT']
 
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     def on_message(client, userdata: map, msg: mqtt.MQTTMessage):
+        global ANIMATION_MESSAGE, ANIMATION_MESSAGE_IP, ANIMATION_MESSAGE_PORT
         if not msg.topic in userdata:
             return
         decider: AnimationDecider = userdata[msg.topic]
@@ -46,10 +49,12 @@ def __main__():
             print(f'Sending animation message!', flush=True)
             s.sendto(ANIMATION_MESSAGE, (ANIMATION_MESSAGE_IP, ANIMATION_MESSAGE_PORT))
     
-    m = {'art01/star/yellow-loss-rate': AnimationDecider(0.0, 20.0),
+    m = {
+         'art01/star/yellow-loss-rate': AnimationDecider(0.0, 20.0),
 #         'art01/star/blue-loss-rate': AnimationDecider(0.0, 20.0),
 #         'art01/cern/i_b1': AnimationDecider(0.0, 2000.0),
-         'art01/cern/i_b2': AnimationDecider(0.0, 2000.0)}
+         'art01/cern/i_b2': AnimationDecider(0.0, 2000.0)
+         }
     client.user_data_set(m)
     client.on_message = on_message
     print(f'Connecting to MQTT server: {os.environ["MQTT_SERVER"]}:{os.environ["MQTT_PORT"]}', flush=True)
