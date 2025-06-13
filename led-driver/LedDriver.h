@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <vector>
 #include <queue>
-#include <map>
 #include <mutex>
 #include <memory>
 #include <libconfig.h++>
@@ -13,6 +12,7 @@
 //#define CONTROL_SPI
 #define CONTROL_ARTNET
 
+#include "LedDefs.h"
 
 #ifdef CONTROL_SPI
 #include "rpi_ws281x/ws2811.h"
@@ -21,13 +21,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #endif //CONTROL_ARTNET
-
-struct color_t {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t w;
-};
 
 enum AnimStage {
     kDark = 0,
@@ -143,12 +136,12 @@ private:
     void updateExplosion(float deltaTime);
     void updateFade(float deltaTime);
 
-    void drawCWLine(float angleFrom, float angleTo, bool inner, const color_t& color);
-    void drawCCWLine(float angleFrom, float angleTo, bool inner, const color_t& color);
-    void drawFill(float fillRatio, bool inner, const color_t& color);
-    void dimLeds(float multiplier, uint8_t addition);
+    void drawCWLine(float angleFrom, float angleTo, const color_t& color);
+    void drawCCWLine(float angleFrom, float angleTo, const color_t& color);
+    void drawFill(float fillRatio, const color_t& color);
+    void dimLeds(float multiplier, color_data_t addition);
 
-    inline float partialLedFromAngle(float angle, bool innerRing);
+    inline float partialLedFromAngle(float angle);
 
     // Setup
     std::queue<int64_t> _ledSetupQueue;
@@ -165,8 +158,7 @@ private:
     std::shared_ptr<IAnimStageData> _stageData;
     std::shared_ptr<IAnimStageData> _nextStageData;
 
-    std::vector<color_t> _ledsRingInner;
-    std::vector<color_t> _ledsRingOuter;
+    std::vector<color_t> _ledsRing;
 
     std::mutex _stageMtx;
 
@@ -184,14 +176,10 @@ private:
     // Rendering
 #ifdef CONTROL_ARTNET
     int _sockfd;
-    int _ledPaddingInnerStart = 3;
-    int _ledInnerCountStart = 38;
-    int _ledPaddingInnerEnd = 3;
-    int _ledInnerCountEnd = 38;
-    int _ledPaddingOuterStart = 3;
-    int _ledOuterCountStart = 39;
-    int _ledPaddingOuterEnd = 3;
-    int _ledOuterCountEnd = 39;
+    int _ledPaddingStart = 3;
+    int _ledCountStart = 38;
+    int _ledPaddingEnd = 3;
+    int _ledCountEnd = 38;
     sockaddr_in _remote;
     std::string _remoteAddress = "127.0.0.1";
     void sendArtNet();

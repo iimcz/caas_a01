@@ -1,9 +1,8 @@
 #include "ArtNet.h"
-#include "LedDriver.h"
 
 #include <endian.h>
 #include <memory.h>
-#include <iostream>
+#include <netinet/in.h>
 
 void constructArtNetPacket(uint8_t *packet, const color_t *channelValues, int32_t numValues, uint8_t universe, uint8_t net)
 {
@@ -24,31 +23,18 @@ void constructArtNetPacket(uint8_t *packet, const color_t *channelValues, int32_
     packet[ARTNET_LENGTH_HI_OFFSET] = (dataLength >> 8) & 0xFF;
     packet[ARTNET_LENGTH_LO_OFFSET] = dataLength & 0xFF;
 
+    color_data_t *packet_colors = reinterpret_cast<color_data_t*>(&packet[ARTNET_HEADER_SIZE]);
+
     // Copy the data
-    if (numValues < 0)
+    int incr = numValues < 0 ? -1 : 1;
+    int numChannels = incr * 4 * numValues;
+    int valIndex = numValues < 0 ? -numValues - 1 : 0;
+    for (int i = 0; i < numChannels; i += 4)
     {
-        int numChannels = -4 * numValues;
-        int valIndex = -numValues - 1;
-        for (int i = 0; i < numChannels; i += 4)
-        {
-            packet[ARTNET_HEADER_SIZE + i + 0] = channelValues[valIndex].r;
-            packet[ARTNET_HEADER_SIZE + i + 1] = channelValues[valIndex].g;
-            packet[ARTNET_HEADER_SIZE + i + 2] = channelValues[valIndex].b;
-            packet[ARTNET_HEADER_SIZE + i + 3] = channelValues[valIndex].w;
-            valIndex--;
-        }
-    }
-    else
-    {
-        int numChannels = 4 * numValues;
-        int valIndex = 0;
-        for (int i = 0; i < numChannels; i += 4)
-        {
-            packet[ARTNET_HEADER_SIZE + i + 0] = channelValues[valIndex].r;
-            packet[ARTNET_HEADER_SIZE + i + 1] = channelValues[valIndex].g;
-            packet[ARTNET_HEADER_SIZE + i + 2] = channelValues[valIndex].b;
-            packet[ARTNET_HEADER_SIZE + i + 3] = channelValues[valIndex].w;
-            valIndex++;
-        }
+        packet[ARTNET_HEADER_SIZE + i + 0] = htons(channelValues[valIndex].r);
+        packet[ARTNET_HEADER_SIZE + i + 1] = htons(channelValues[valIndex].g);
+        packet[ARTNET_HEADER_SIZE + i + 2] = htons(channelValues[valIndex].b);
+        packet[ARTNET_HEADER_SIZE + i + 3] = htons(channelValues[valIndex].w);
+        valIndex += incr;
     }
 }

@@ -2,7 +2,8 @@
 #define _ARTNET_H
 
 #include <stdint.h>
-#include <iterator>
+
+#include "LedDefs.h"
 
 // The size of the ArtNet packet ID in bytes
 #define ARTNET_ID_SIZE 8
@@ -49,7 +50,6 @@
 // ArtNet default port number
 #define ARTNET_PORT 6454
 
-struct color_t;
 void constructArtNetPacket(uint8_t *packet, const color_t *channelValues, int32_t numChannels, uint8_t universe, uint8_t net);
 
 #endif // _ARTNET_H

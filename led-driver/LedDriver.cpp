@@ -1,8 +1,9 @@
 #include <cmath>
 #include <iostream>
-#include <iomanip>
+#include <limits>
 #include "LedDriver.h"
 #include "ArtNet.h"
+#include "LedDefs.h"
 
 #ifdef CONTROL_ARTNET
 #include <arpa/inet.h>
@@ -17,56 +18,35 @@ inline uint32_t RGBW(const color_t &color)
            static_cast<uint32_t>(color.w);
 }
 
-void LedDriver::drawFill(float fillRatio, bool inner, const color_t &color)
+void LedDriver::drawFill(float fillRatio, const color_t &color)
 {
     if (_pulsing)
     {
         fillRatio = fillRatio * _pulseValue;
     }
-    if (inner)
+    for (auto &led : _ledsRing)
     {
-        for (auto &led : _ledsRingInner)
-        {
-            led.r = std::max(led.r, static_cast<uint8_t>(color.r * fillRatio));
-            led.g = std::max(led.g, static_cast<uint8_t>(color.g * fillRatio));
-            led.b = std::max(led.b, static_cast<uint8_t>(color.b * fillRatio));
-            led.w = std::max(led.w, static_cast<uint8_t>(color.w * fillRatio));
-        }
-    }
-    else
-    {
-        for (auto &led : _ledsRingOuter)
-        {
-            led.r = std::max(led.r, static_cast<uint8_t>(color.r * fillRatio));
-            led.g = std::max(led.g, static_cast<uint8_t>(color.g * fillRatio));
-            led.b = std::max(led.b, static_cast<uint8_t>(color.b * fillRatio));
-            led.w = std::max(led.w, static_cast<uint8_t>(color.w * fillRatio));
-        }
+        led.r = std::max(led.r, static_cast<color_data_t>(color.r * fillRatio));
+        led.g = std::max(led.g, static_cast<color_data_t>(color.g * fillRatio));
+        led.b = std::max(led.b, static_cast<color_data_t>(color.b * fillRatio));
+        led.w = std::max(led.w, static_cast<color_data_t>(color.w * fillRatio));
     }
 }
 
-void LedDriver::dimLeds(float multiplier, uint8_t addition)
+void LedDriver::dimLeds(float multiplier, color_data_t addition)
 {
-    for (int i = 0; i < _ledsRingInner.size(); ++i)
+    for (int i = 0; i < _ledsRing.size(); ++i)
     {
-        _ledsRingInner[i].r = static_cast<uint8_t>(_ledsRingInner[i].r * multiplier) + addition;
-        _ledsRingInner[i].g = static_cast<uint8_t>(_ledsRingInner[i].g * multiplier) + addition;
-        _ledsRingInner[i].b = static_cast<uint8_t>(_ledsRingInner[i].b * multiplier) + addition;
-        _ledsRingInner[i].w = static_cast<uint8_t>(_ledsRingInner[i].w * multiplier) + addition;
-    }
-
-    for (int i = 0; i < _ledsRingOuter.size(); ++i)
-    {
-        _ledsRingOuter[i].r = static_cast<uint8_t>(_ledsRingOuter[i].r * multiplier) + addition;
-        _ledsRingOuter[i].g = static_cast<uint8_t>(_ledsRingOuter[i].g * multiplier) + addition;
-        _ledsRingOuter[i].b = static_cast<uint8_t>(_ledsRingOuter[i].b * multiplier) + addition;
-        _ledsRingOuter[i].w = static_cast<uint8_t>(_ledsRingOuter[i].w * multiplier) + addition;
+        _ledsRing[i].r = static_cast<color_data_t>(_ledsRing[i].r * multiplier) + addition;
+        _ledsRing[i].g = static_cast<color_data_t>(_ledsRing[i].g * multiplier) + addition;
+        _ledsRing[i].b = static_cast<color_data_t>(_ledsRing[i].b * multiplier) + addition;
+        _ledsRing[i].w = static_cast<color_data_t>(_ledsRing[i].w * multiplier) + addition;
     }
 }
 
-inline float LedDriver::partialLedFromAngle(float angle, bool innerRing)
+inline float LedDriver::partialLedFromAngle(float angle)
 {
-    return innerRing ? _ledsRingInner.size() / 360.0f * angle : _ledsRingOuter.size() / 360.0f * angle;
+    return _ledsRing.size() / 360.0f * angle;
 }
 
 #ifdef CONTROL_ARTNET
@@ -74,33 +54,26 @@ void LedDriver::sendArtNet()
 {
     uint8_t buffer[ARTNET_FULL_PACKET_SIZE];
 
-    constructArtNetPacket(buffer, &_ledsRingInner[0], (_ledInnerCountStart - _ledPaddingInnerStart), 1, 0);
+    constructArtNetPacket(buffer, &_ledsRing[0], (_ledCountStart - _ledPaddingStart), 0, 0);
     ssize_t sent = sendto(_sockfd, buffer, ARTNET_FULL_PACKET_SIZE, 0, (struct sockaddr *)&_remote, sizeof(_remote));
-    if (sent < 0)
-    {
-        std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
-    }
+    if (sent < 0) goto error;
 
-    constructArtNetPacket(buffer, &_ledsRingInner[_ledsRingInner.size() - _ledInnerCountEnd], -(_ledInnerCountEnd - _ledPaddingInnerEnd), 3, 0);
+    constructArtNetPacket(buffer, &_ledsRing[0], (_ledCountStart - _ledPaddingStart), 1, 0);
     sent = sendto(_sockfd, buffer, ARTNET_FULL_PACKET_SIZE, 0, (struct sockaddr *)&_remote, sizeof(_remote));
-    if (sent < 0)
-    {
-        std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
-    }
+    if (sent < 0) goto error;
 
-    constructArtNetPacket(buffer, &_ledsRingOuter[0], (_ledOuterCountStart - _ledPaddingOuterStart), 0, 0);
+    constructArtNetPacket(buffer, &_ledsRing[_ledsRing.size() - _ledCountEnd], -(_ledCountEnd - _ledPaddingEnd), 2, 0);
     sent = sendto(_sockfd, buffer, ARTNET_FULL_PACKET_SIZE, 0, (struct sockaddr *)&_remote, sizeof(_remote));
-    if (sent < 0)
-    {
-        std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
-    }
+    if (sent < 0) goto error;
 
-    constructArtNetPacket(buffer, &_ledsRingOuter[_ledsRingOuter.size() - _ledOuterCountEnd], -(_ledOuterCountEnd - _ledPaddingOuterEnd), 2, 0);
+    constructArtNetPacket(buffer, &_ledsRing[_ledsRing.size() - _ledCountEnd], -(_ledCountEnd - _ledPaddingEnd), 3, 0);
     sent = sendto(_sockfd, buffer, ARTNET_FULL_PACKET_SIZE, 0, (struct sockaddr *)&_remote, sizeof(_remote));
-    if (sent < 0)
-    {
-        std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
-    }
+    if (sent < 0) goto error;
+
+error:
+    std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
+success:
+    return;
 }
 #endif // CONTROL_ARTNET
 
@@ -122,12 +95,10 @@ LedDriver::LedDriver()
          .b = 50,
          .w = 255};
 #ifdef RENDER_DEBUG
-    _ledsRingInner.resize(10);
-    _ledsRingOuter.resize(10);
+    _ledsRing.resize(10);
 #else
 #ifdef CONTROL_ARTNET
-    _ledsRingInner.resize(_ledInnerCountStart + _ledInnerCountEnd);
-    _ledsRingOuter.resize(_ledOuterCountStart + _ledOuterCountEnd);
+    _ledsRing.resize(_ledCountStart + _ledCountEnd);
 
     _remote.sin_addr.s_addr = inet_addr(_remoteAddress.c_str());
     _remote.sin_port = htons(ARTNET_PORT);
@@ -204,18 +175,13 @@ bool LedDriver::getPulsing() const
 void LedDriver::applyConfig(const libconfig::Config &config)
 {
 #ifdef CONTROL_ARTNET
-    config.lookupValue("led_driver.artnet.leds.inner_start", _ledInnerCountStart);
-    config.lookupValue("led_driver.artnet.leds.inner_end", _ledInnerCountEnd);
-    config.lookupValue("led_driver.artnet.leds.outer_start", _ledOuterCountStart);
-    config.lookupValue("led_driver.artnet.leds.outer_end", _ledOuterCountEnd);
+    config.lookupValue("led_driver.artnet.leds.start", _ledCountStart);
+    config.lookupValue("led_driver.artnet.leds.end", _ledCountEnd);
 
-    config.lookupValue("led_driver.artnet.padding.inner_start", _ledPaddingInnerStart);
-    config.lookupValue("led_driver.artnet.padding.inner_end", _ledPaddingInnerEnd);
-    config.lookupValue("led_driver.artnet.padding.outer_start", _ledPaddingOuterStart);
-    config.lookupValue("led_driver.artnet.padding.outer_end", _ledPaddingOuterEnd);
+    config.lookupValue("led_driver.artnet.padding.start", _ledPaddingStart);
+    config.lookupValue("led_driver.artnet.padding.end", _ledPaddingEnd);
 
-    _ledsRingInner.resize(_ledInnerCountEnd + _ledInnerCountEnd);
-    _ledsRingOuter.resize(_ledOuterCountEnd + _ledOuterCountStart);
+    _ledsRing.resize(_ledCountEnd + _ledCountEnd);
 
     config.lookupValue("led_driver.artnet.controller_ip", _remoteAddress);
     _remote.sin_addr.s_addr = inet_addr(_remoteAddress.c_str());
@@ -238,10 +204,10 @@ void LedDriver::applyConfig(const libconfig::Config &config)
     config.lookupValue("led_driver.colors.primary.g", g);
     config.lookupValue("led_driver.colors.primary.b", b);
     config.lookupValue("led_driver.colors.primary.w", w);
-    _primary.r = static_cast<uint8_t>(std::min(255u, r));
-    _primary.g = static_cast<uint8_t>(std::min(255u, g));
-    _primary.b = static_cast<uint8_t>(std::min(255u, b));
-    _primary.w = static_cast<uint8_t>(std::min(255u, w));
+    _primary.r = static_cast<color_data_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(r)));
+    _primary.g = static_cast<color_data_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(g)));
+    _primary.b = static_cast<color_data_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(b)));
+    _primary.w = static_cast<color_data_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(w)));
 
     r = _secondary.r;
     g = _secondary.g;
@@ -251,10 +217,10 @@ void LedDriver::applyConfig(const libconfig::Config &config)
     config.lookupValue("led_driver.colors.secondary.g", g);
     config.lookupValue("led_driver.colors.secondary.b", b);
     config.lookupValue("led_driver.colors.secondary.w", w);
-    _secondary.r = static_cast<uint8_t>(std::min(255u, r));
-    _secondary.g = static_cast<uint8_t>(std::min(255u, g));
-    _secondary.b = static_cast<uint8_t>(std::min(255u, b));
-    _secondary.w = static_cast<uint8_t>(std::min(255u, w));
+    _secondary.r = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(r)));
+    _secondary.g = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(g)));
+    _secondary.b = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(b)));
+    _secondary.w = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(w)));
 
     r = _fill.r;
     g = _fill.g;
@@ -264,10 +230,10 @@ void LedDriver::applyConfig(const libconfig::Config &config)
     config.lookupValue("led_driver.colors.fill.g", g);
     config.lookupValue("led_driver.colors.fill.b", b);
     config.lookupValue("led_driver.colors.fill.w", w);
-    _fill.r = static_cast<uint8_t>(std::min(255u, r));
-    _fill.g = static_cast<uint8_t>(std::min(255u, g));
-    _fill.b = static_cast<uint8_t>(std::min(255u, b));
-    _fill.w = static_cast<uint8_t>(std::min(255u, w));
+    _fill.r = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(r)));
+    _fill.g = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(g)));
+    _fill.b = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(b)));
+    _fill.w = static_cast<uint8_t>(std::min(std::numeric_limits<color_data_t>::max(), static_cast<color_data_t>(w)));
 }
 
 void LedDriver::update(float deltaTime)
@@ -331,11 +297,7 @@ void LedDriver::render()
 
 void LedDriver::clear()
 {
-    for (auto &color : _ledsRingInner)
-    {
-        color.r = color.g = color.b = color.w = 0;
-    }
-    for (auto &color : _ledsRingOuter)
+    for (auto &color : _ledsRing)
     {
         color.r = color.g = color.b = color.w = 0;
     }
@@ -434,7 +396,7 @@ void LedDriver::updateStarting(float deltaTime)
     {
         data->particle_position -= 360.0f;
     }
-    drawCWLine(last_position, data->particle_position, false, _primary);
+    drawCWLine(last_position, data->particle_position, _primary);
 
     data->particle_speed += data->particle_accel * deltaTime;
     if (data->particle_speed > data->target_speed)
@@ -456,7 +418,7 @@ void LedDriver::updateIdle(float deltaTime)
     {
         data->particle_position -= 360.0f;
     }
-    drawCWLine(last_position, data->particle_position, false, _primary);
+    drawCWLine(last_position, data->particle_position, _primary);
 
     if (data->auto_advance && data->elapsed_time > data->advance_time)
     {
@@ -506,8 +468,8 @@ void LedDriver::updateWindup(float deltaTime)
     }
     else
     {
-        drawCWLine(first_last_position, data->first_particle_position, false, _primary);
-        drawCCWLine(second_last_position, data->second_particle_position, true, _secondary);
+        drawCWLine(first_last_position, data->first_particle_position, _primary);
+        drawCCWLine(second_last_position, data->second_particle_position, _secondary);
     }
 }
 
@@ -521,8 +483,7 @@ void LedDriver::updateExplosion(float deltaTime)
     {
         advanceStage(AnimStage::kFade);
     }
-    drawFill(data->fill_ratio, false, _fill);
-    drawFill(data->fill_ratio, true, _fill);
+    drawFill(data->fill_ratio, _fill);
 }
 
 void LedDriver::updateFade(float deltaTime)
@@ -537,17 +498,17 @@ void LedDriver::updateFade(float deltaTime)
     }
 }
 
-void LedDriver::drawCWLine(float angleFrom, float angleTo, bool inner, const color_t &color)
+void LedDriver::drawCWLine(float angleFrom, float angleTo, const color_t &color)
 {
     color_t realColor = {
-        .r = _pulsing ? static_cast<uint8_t>(color.r * _pulseValue) : color.r,
-        .g = _pulsing ? static_cast<uint8_t>(color.g * _pulseValue) : color.g,
-        .b = _pulsing ? static_cast<uint8_t>(color.b * _pulseValue) : color.b,
-        .w = _pulsing ? static_cast<uint8_t>(color.w * _pulseValue) : color.w,
+        .r = _pulsing ? static_cast<color_data_t>(color.r * _pulseValue) : color.r,
+        .g = _pulsing ? static_cast<color_data_t>(color.g * _pulseValue) : color.g,
+        .b = _pulsing ? static_cast<color_data_t>(color.b * _pulseValue) : color.b,
+        .w = _pulsing ? static_cast<color_data_t>(color.w * _pulseValue) : color.w,
     };
 
-    float ledFrom = partialLedFromAngle(angleFrom, inner);
-    float ledTo = partialLedFromAngle(angleTo, inner);
+    float ledFrom = partialLedFromAngle(angleFrom);
+    float ledTo = partialLedFromAngle(angleTo);
 
     float ledToI;
     float ledToP = modff32(ledTo, &ledToI);
@@ -558,54 +519,52 @@ void LedDriver::drawCWLine(float angleFrom, float angleTo, bool inner, const col
     uint32_t iledFrom = static_cast<uint32_t>(ledFromI);
     uint32_t iledTo = static_cast<uint32_t>(ledToI);
 
-    std::vector<color_t> &target = inner ? _ledsRingInner : _ledsRingOuter;
-
-    size_t partialTo = ((iledTo + 1) % target.size());
-    target[partialTo].r = static_cast<uint8_t>(realColor.r * ledToP);
-    target[partialTo].g = static_cast<uint8_t>(realColor.g * ledToP);
-    target[partialTo].b = static_cast<uint8_t>(realColor.b * ledToP);
-    target[partialTo].w = static_cast<uint8_t>(realColor.w * ledToP);
+    size_t partialTo = ((iledTo + 1) % _ledsRing.size());
+    _ledsRing[partialTo].r = static_cast<color_data_t>(realColor.r * ledToP);
+    _ledsRing[partialTo].g = static_cast<color_data_t>(realColor.g * ledToP);
+    _ledsRing[partialTo].b = static_cast<color_data_t>(realColor.b * ledToP);
+    _ledsRing[partialTo].w = static_cast<color_data_t>(realColor.w * ledToP);
 
     if (angleTo > angleFrom)
     {
         for (uint32_t i = iledFrom; i <= iledTo; ++i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
     }
     else
     {
-        for (uint32_t i = iledFrom; i < target.size(); ++i)
+        for (uint32_t i = iledFrom; i < _ledsRing.size(); ++i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
         for (uint32_t i = 0; i <= iledTo; ++i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
     }
 }
 
-void LedDriver::drawCCWLine(float angleFrom, float angleTo, bool inner, const color_t &color)
+void LedDriver::drawCCWLine(float angleFrom, float angleTo, const color_t &color)
 {
     color_t realColor = {
-        .r = _pulsing ? static_cast<uint8_t>(color.r * _pulseValue) : color.r,
-        .g = _pulsing ? static_cast<uint8_t>(color.g * _pulseValue) : color.g,
-        .b = _pulsing ? static_cast<uint8_t>(color.b * _pulseValue) : color.b,
-        .w = _pulsing ? static_cast<uint8_t>(color.w * _pulseValue) : color.w,
+        .r = _pulsing ? static_cast<color_data_t>(color.r * _pulseValue) : color.r,
+        .g = _pulsing ? static_cast<color_data_t>(color.g * _pulseValue) : color.g,
+        .b = _pulsing ? static_cast<color_data_t>(color.b * _pulseValue) : color.b,
+        .w = _pulsing ? static_cast<color_data_t>(color.w * _pulseValue) : color.w,
     };
 
-    float ledFrom = partialLedFromAngle(angleFrom, inner);
-    float ledTo = partialLedFromAngle(angleTo, inner);
+    float ledFrom = partialLedFromAngle(angleFrom);
+    float ledTo = partialLedFromAngle(angleTo);
 
     float ledToI;
     float ledToP = 1.0f - modff32(ledTo, &ledToI);
@@ -616,39 +575,37 @@ void LedDriver::drawCCWLine(float angleFrom, float angleTo, bool inner, const co
     int32_t iledFrom = static_cast<int32_t>(ledFromI);
     int32_t iledTo = static_cast<int32_t>(ledToI);
 
-    std::vector<color_t> &target = inner ? _ledsRingInner : _ledsRingOuter;
-
-    size_t partialTo = ((iledTo - 1 + target.size()) % target.size());
-    target[partialTo].r = static_cast<uint8_t>(realColor.r * ledToP);
-    target[partialTo].g = static_cast<uint8_t>(realColor.g * ledToP);
-    target[partialTo].b = static_cast<uint8_t>(realColor.b * ledToP);
-    target[partialTo].w = static_cast<uint8_t>(realColor.w * ledToP);
+    size_t partialTo = ((iledTo - 1 + _ledsRing.size()) % _ledsRing.size());
+    _ledsRing[partialTo].r = static_cast<color_data_t>(realColor.r * ledToP);
+    _ledsRing[partialTo].g = static_cast<color_data_t>(realColor.g * ledToP);
+    _ledsRing[partialTo].b = static_cast<color_data_t>(realColor.b * ledToP);
+    _ledsRing[partialTo].w = static_cast<color_data_t>(realColor.w * ledToP);
 
     if (angleTo < angleFrom)
     {
         for (int32_t i = iledFrom; i >= iledTo; --i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
     }
     else
     {
         for (int32_t i = iledFrom; i >= 0; --i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
-        for (int32_t i = target.size() - 1; i >= iledTo; --i)
+        for (int32_t i = _ledsRing.size() - 1; i >= iledTo; --i)
         {
-            target[i].r = realColor.r;
-            target[i].g = realColor.g;
-            target[i].b = realColor.b;
-            target[i].w = realColor.w;
+            _ledsRing[i].r = realColor.r;
+            _ledsRing[i].g = realColor.g;
+            _ledsRing[i].b = realColor.b;
+            _ledsRing[i].w = realColor.w;
         }
     }
 }
