@@ -70,6 +70,8 @@ void LedDriver::sendArtNet()
     sent = sendto(_sockfd, buffer, ARTNET_FULL_PACKET_SIZE, 0, (struct sockaddr *)&_remote, sizeof(_remote));
     if (sent < 0) goto error;
 
+    goto success;
+
 error:
     std::cout << "Failed to send ArtNet packet! Error: " << errno << std::endl;
 success:
